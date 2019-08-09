@@ -1,14 +1,23 @@
-import sys
+import os
 import random
+
+from matplotlib import pyplot as plt
+import numpy as np
+
+from Player import Player
 
 
 class Table:
-    def __init__(self, num_decks=6, player_chips=100, penetration_limit=0):
+    def __init__(self, num_decks=6, player_chips=0, penetration_limit=0.0, is_bot=False, BJ_multiple=5/2):
         # TABLE CONSTANT
         self.POKER = {'A': 11, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10,
                       'J': 10, 'Q': 10, 'K': 10}
         self.PENETRATION_LIMIT = penetration_limit
         self.NUM_DECKS = num_decks
+        self.BJ_multiple = BJ_multiple
+
+        # player
+        self.player = Player(self, player_chips, is_bot)
 
         # table var
         self.shoe = []
@@ -17,19 +26,35 @@ class Table:
         self.player_hands = [[]]
         self.betting_box = [0]
 
-        # player
-        self.BET_DEFAULT = 10
-        self.player_chips = player_chips
+        # info
+        self.n_rounds = 0
+        self.n_rounds_max = 100
+        self.player_chips_history = [self.player.chips]
+        self.expectation_history = []
 
         self.reshuffle()
 
     # ================ game ================
+    def init(self):
+        self.reshuffle()
+        self.player.reset()
+        self.player_chips_history = [self.player.chips]
+        self.expectation_history = []
+        self.n_rounds = 0
+
+    def bot(self):
+        self.player.is_bot = True
+
+    def human(self):
+        self.player.is_bot = False
+
     def penetrated(self):
         if len(self.shoe) / (len(self.shoe) + len(self.discards)) <= self.PENETRATION_LIMIT:
             return True
         return False
 
     def reshuffle(self):
+        self.player.reset_counter()
         self.shoe.clear()
         self.discards.clear()
         self.shoe = list(self.POKER.keys()) * 4 * self.NUM_DECKS
@@ -37,7 +62,7 @@ class Table:
 
     # ================ turn ================
     def bet(self, i_player_hand, bet):
-        self.player_chips -= bet
+        self.player.chips -= bet
         self.betting_box[i_player_hand] += bet
 
     def player_draw(self, i_player_hand):
@@ -58,6 +83,7 @@ class Table:
         # allow split infinite times
         hand = self.player_hands[i_hand]
         if len(hand) != 2 or hand[0] != hand[1]:
+            print(hand)
             print("Cannot split.")
             return False
         hand_new = [hand.pop()]
@@ -73,27 +99,18 @@ class Table:
         self.player_draw(0)
 
     def init_bet(self):
-        b = input("bet: ")
-        if b:
-            b = int(b)
+        if self.player.is_bot:
+            self.bet(0, self.player.get_bet())
         else:
-            b = self.BET_DEFAULT
-        self.bet(0, b)
+            os.system('clear')
+            bet = input("Bet: ")
+            if bet:
+                bet = int(bet)
+            else:
+                bet = self.player.BET_DEFAULT
+            self.bet(0, bet)
 
     # ================ round ================
-    def display(self, round_ended=False):
-        sys.stdout.flush()
-        print("dealer hand: ")
-        if round_ended:
-            print(self.dealer_hand)
-        else:
-            print(self.dealer_hand[:1])
-        print("player hands: ", self.player_hands)
-        print(self.player_hands)
-        print("betting box:  ", self.betting_box)
-        if round_ended:
-            print("chips remaining: ", self.player_chips)
-
     def sum(self, hand):
         hand = [self.POKER[card] for card in hand]
         while 11 in hand:
@@ -104,10 +121,11 @@ class Table:
         return sum(hand)
 
     def settle(self):
-        # return winner 0: dealer; 1: draw; 2: player;
         multiples = []
         for player_hand in self.player_hands:
-            if self.sum(player_hand) > 21:
+            if self.sum(player_hand) == 21 and len(player_hand) == 2:
+                multiples.append(self.BJ_multiple)
+            elif self.sum(player_hand) > 21:
                 multiples.append(0)
             elif self.sum(self.dealer_hand) > 21:
                 multiples.append(2)
@@ -121,17 +139,49 @@ class Table:
 
     def collect(self):
         # discard all cards when the round ends
-        self.discards += self.dealer_hand
+        for card in self.dealer_hand:
+            self.discards.append(card)
+            self.player.count_card(card)
         self.dealer_hand.clear()
 
         for hand in self.player_hands:
-            self.discards += hand
+            for card in hand:
+                self.player.count_card(card)
+                self.discards.append(card)
             hand.clear()
         self.player_hands = [[]]
 
-        print('b:', self.betting_box)
-        self.player_chips += sum(self.betting_box)
+        self.player.chips += sum(self.betting_box)
+        self.player_chips_history.append(self.player.chips)
+        self.n_rounds += 1
         self.betting_box = [0]
+        if not self.player.is_bot:
+            print("chips:   ", self.player.chips)
+            print("============================")
+
+    # ================ visualization ================
+    def display(self, round_ended=False):
+        if self.player.is_bot:
+            pass
+        else:
+            os.system('clear')
+            if round_ended:
+                print("dealer: ", self.dealer_hand)
+            else:
+                print("dealer: ", self.dealer_hand[:1])
+            print("player: ", self.player_hands)
+            print("bet:    ", self.betting_box)
+            input()
+
+    def plot_chips_history(self):
+        n_rounds = [i for i in range(len(self.player_chips_history))]
+        plt.plot(n_rounds, self.player_chips_history)
+        plt.show()
+
+    def plot_expectation_history(self):
+        n_rounds = [i for i in range(len(self.expectation_history[10000:]))]
+        plt.plot(n_rounds, self.expectation_history[10000:])
+        plt.show()
 
     # ================ play ================
     def play_round(self):
@@ -143,7 +193,12 @@ class Table:
                 if self.sum(player_hand) >= 21:
                     break
                 self.display()
-                action = input()
+
+                if self.player.is_bot:
+                    action = self.player.get_action(self.dealer_hand[0], player_hand)
+                    # print(action)
+                else:
+                    action = input()
                 if action == 'h':   # hit
                     self.player_draw(i_player_hand)
                     continue
@@ -166,4 +221,34 @@ class Table:
         self.display(True)
         self.collect()
 
-        return self.player_chips
+    def play_game(self, std_target=5E-5, n_rounds_max=100000):
+        self.init()
+        self.n_rounds_max = n_rounds_max
+        expectation = -1
+        while True:
+            if self.n_rounds == n_rounds_max:
+                break
+            if self.player.is_bot:
+                self.play_round()
+            else:
+                command = input()
+                if not command == "e" or command == "exit" or command == "q" or command == "quit":
+                    self.play_round()
+                else:
+                    break
+            expectation = self.player.chips / self.n_rounds
+            self.expectation_history.append(expectation)
+            if self.n_rounds % 10000 == 0:
+                std = np.std(self.expectation_history[-10000:])
+                os.system('clear')
+                if std:
+                    print(std_target / std)
+                if std < std_target:
+                    break
+
+        print('expectation: ', expectation)
+
+
+if __name__ == "__main__":
+    t = Table()
+    t.bot()
