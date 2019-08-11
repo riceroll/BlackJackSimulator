@@ -8,7 +8,7 @@ from Player import Player
 
 
 class Table:
-    def __init__(self, num_decks=6, player_chips=0, penetration_limit=0.0, is_bot=False, BJ_multiple=5/2):
+    def __init__(self, num_decks=6, player_chips=0, penetration_limit=0.0, is_bot=False, BJ_multiple=5/2, strategy="Basic"):
         # TABLE CONSTANT
         self.POKER = {'A': 11, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10,
                       'J': 10, 'Q': 10, 'K': 10}
@@ -17,7 +17,7 @@ class Table:
         self.BJ_multiple = BJ_multiple
 
         # player
-        self.player = Player(self, player_chips, is_bot)
+        self.player = Player(self, player_chips, is_bot, strategy=strategy)
 
         # table var
         self.shoe = []
@@ -28,9 +28,10 @@ class Table:
 
         # info
         self.n_rounds = 0
-        self.n_rounds_max = 100
         self.player_chips_history = [self.player.chips]
-        self.expectation_history = []
+        self.earning_rate_history = []
+        self.earning_rate = None
+        self.residual = None
 
         self.reshuffle()
 
@@ -39,7 +40,9 @@ class Table:
         self.reshuffle()
         self.player.reset()
         self.player_chips_history = [self.player.chips]
-        self.expectation_history = []
+        self.earning_rate_history = []
+        self.earning_rate = None
+        self.residual = None
         self.n_rounds = 0
 
     def bot(self):
@@ -159,7 +162,7 @@ class Table:
             print("chips:   ", self.player.chips)
             print("============================")
 
-    # ================ visualization ================
+    # ================ statistics ================
     def display(self, round_ended=False):
         if self.player.is_bot:
             pass
@@ -173,14 +176,20 @@ class Table:
             print("bet:    ", self.betting_box)
             input()
 
+    def fit_chips_history(self):
+        x = [i for i in range(len(self.player_chips_history))]
+        self.earning_rate, self.residual, _, _ = np.linalg.lstsq(np.array(x)[:, np.newaxis], self.player_chips_history, rcond=None)
+
     def plot_chips_history(self):
-        n_rounds = [i for i in range(len(self.player_chips_history))]
-        plt.plot(n_rounds, self.player_chips_history)
+        x = [i for i in range(len(self.player_chips_history))]
+        y = self.earning_rate * x
+        plt.plot(x, self.player_chips_history)
+        plt.plot(x, y)
         plt.show()
 
-    def plot_expectation_history(self):
-        n_rounds = [i for i in range(len(self.expectation_history[10000:]))]
-        plt.plot(n_rounds, self.expectation_history[10000:])
+    def plot_earning_rate_history(self):
+        n_rounds = [i for i in range(len(self.earning_rate_history[100:]))]
+        plt.plot(n_rounds, self.earning_rate_history[100:])
         plt.show()
 
     # ================ play ================
@@ -221,12 +230,11 @@ class Table:
         self.display(True)
         self.collect()
 
-    def play_game(self, std_target=5E-5, n_rounds_max=100000):
+    def play_game(self, n_rounds_max=1E5, residual_threshold=2E-6,  n_rounds_min=1E3):
         self.init()
-        self.n_rounds_max = n_rounds_max
-        expectation = -1
         while True:
             if self.n_rounds == n_rounds_max:
+                self.fit_chips_history()
                 break
             if self.player.is_bot:
                 self.play_round()
@@ -236,17 +244,16 @@ class Table:
                     self.play_round()
                 else:
                     break
-            expectation = self.player.chips / self.n_rounds
-            self.expectation_history.append(expectation)
-            if self.n_rounds % 10000 == 0:
-                std = np.std(self.expectation_history[-10000:])
+            if self.n_rounds % n_rounds_min == 0:
                 os.system('clear')
-                if std:
-                    print(std_target / std)
-                if std < std_target:
-                    break
+                print(self.n_rounds / n_rounds_max)
+                # self.fit_chips_history()
+                # if self.residual:
+                    # print(residual_threshold / (self.residual / self.n_rounds))
+                # if self.residual / self.n_rounds < residual_threshold:
+                #     break
 
-        print('expectation: ', expectation)
+        print('earning_rate: ', self.earning_rate)
 
 
 if __name__ == "__main__":

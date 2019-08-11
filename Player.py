@@ -5,7 +5,7 @@ from matplotlib import pyplot as plt
 
 
 class Player:
-    def __init__(self, table=None, chips=0, is_bot=False):
+    def __init__(self, table=None, chips=0, is_bot=False, strategy="Basic"):
         self.POKER = {'A': 11, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10,
                       'J': 10, 'Q': 10, 'K': 10}
         self.ACTION = {0: 's', 1: 'h', 2: 'd', 3: 'p'}
@@ -26,7 +26,7 @@ class Player:
 
         self.count_history = [0]
 
-        self.read_strategy()
+        self.read_strategy(strategy)
 
     def reset(self):
         self.count_history = [0]
@@ -66,9 +66,10 @@ class Player:
         plt.show()
 
     def get_bet(self):
-        return 1
-        if self.count > 5:
+        if self.count > 7:
             return 4
+        if self.count > 5:
+            return 3
         elif self.count > 3:
             return 2
         return 1
